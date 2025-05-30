@@ -579,7 +579,6 @@ static int gc2053_set_ctrl(struct v4l2_ctrl *ctrl)
 			vts += 10;
 		ret = gc2053_write_reg(gc2053->client, GC2053_REG_VTS_H, (vts >> 8) & 0x3f);
 		ret |= gc2053_write_reg(gc2053->client, GC2053_REG_VTS_L, vts & 0xff);
-		/* TBD: master and slave not sync to streaming, but except sleep 20ms below */
 		usleep_range(20000, 50000);
 		break;
 	case V4L2_CID_HFLIP:

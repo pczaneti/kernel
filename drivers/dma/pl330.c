@@ -541,9 +541,11 @@ struct dma_pl330_desc {
 	/* For cyclic capability */
 	bool cyclic;
 	size_t num_periods;
-
-	/* interleaved size */
-	struct data_chunk sgl;
+#ifdef CONFIG_NO_GKI
+	/* interlace size */
+	unsigned int src_interlace_size;
+	unsigned int dst_interlace_size;
+#endif
 };
 
 struct _xfer_spec {
@@ -1202,7 +1204,7 @@ static inline int _ldst_peripheral(struct pl330_dmac *pl330,
 				 const struct _xfer_spec *pxs, int cyc,
 				 enum pl330_cond cond)
 {
-	int off = 0, i = 0, burstn = 1;
+	int off = 0;
 
 	/*
 	 * do FLUSHP at beginning to clear any stale dma requests before the
@@ -1210,36 +1212,30 @@ static inline int _ldst_peripheral(struct pl330_dmac *pl330,
 	 */
 	if (!(pl330->quirks & PL330_QUIRK_BROKEN_NO_FLUSHP))
 		off += _emit_FLUSHP(dry_run, &buf[off], pxs->desc->peri);
-
-	if (pxs->desc->sgl.size) {
-		WARN_ON(BYTE_MOD_BURST_LEN(pxs->desc->sgl.size, pxs->ccr));
-		burstn = BYTE_TO_BURST(pxs->desc->sgl.size, pxs->ccr);
-	}
-
 	while (cyc--) {
-		for (i = 0; i < burstn; i++) {
-			off += _emit_WFP(dry_run, &buf[off], cond, pxs->desc->peri);
-			off += _emit_load(dry_run, &buf[off], cond, pxs->desc->rqtype,
-				pxs->desc->peri);
-			off += _emit_store(dry_run, &buf[off], cond, pxs->desc->rqtype,
-				pxs->desc->peri);
-		}
-
+		off += _emit_WFP(dry_run, &buf[off], cond, pxs->desc->peri);
+		off += _emit_load(dry_run, &buf[off], cond, pxs->desc->rqtype,
+			pxs->desc->peri);
+		off += _emit_store(dry_run, &buf[off], cond, pxs->desc->rqtype,
+			pxs->desc->peri);
+#ifdef CONFIG_NO_GKI
 		switch (pxs->desc->rqtype) {
 		case DMA_DEV_TO_MEM:
-			if (pxs->desc->sgl.dst_icg)
+
+			if (pxs->desc->dst_interlace_size)
 				off += _emit_ADDH(dry_run, &buf[off], DST,
-						  pxs->desc->sgl.dst_icg);
+						  pxs->desc->dst_interlace_size);
 			break;
 		case DMA_MEM_TO_DEV:
-			if (pxs->desc->sgl.src_icg)
+			if (pxs->desc->src_interlace_size)
 				off += _emit_ADDH(dry_run, &buf[off], SRC,
-						  pxs->desc->sgl.src_icg);
+						  pxs->desc->src_interlace_size);
 			break;
 		default:
 			WARN_ON(1);
 			break;
 		}
+#endif
 	}
 
 	return off;
@@ -1454,7 +1450,9 @@ static int _period(struct pl330_dmac *pl330, unsigned int dry_run, u8 buf[],
 		off += _emit_LPEND(dry_run, &buf[off], &lpend);
 	}
 
-	if (!pxs->desc->sgl.src_icg && !pxs->desc->sgl.dst_icg) {
+#ifdef CONFIG_NO_GKI
+	if (!pxs->desc->src_interlace_size &&
+	    !pxs->desc->dst_interlace_size) {
 		num_dregs = BYTE_MOD_BURST_LEN(x->bytes, pxs->ccr);
 
 		if (num_dregs) {
@@ -1462,6 +1460,14 @@ static int _period(struct pl330_dmac *pl330, unsigned int dry_run, u8 buf[],
 			off += _emit_MOV(dry_run, &buf[off], CCR, pxs->ccr);
 		}
 	}
+#else
+	num_dregs = BYTE_MOD_BURST_LEN(x->bytes, pxs->ccr);
+
+	if (num_dregs) {
+		off += _dregs(pl330, dry_run, &buf[off], pxs, num_dregs);
+		off += _emit_MOV(dry_run, &buf[off], CCR, pxs->ccr);
+	}
+#endif
 
 	off += _emit_SEV(dry_run, &buf[off], ev);
 
@@ -1529,18 +1535,26 @@ static inline int _setup_loops(struct pl330_dmac *pl330,
 		BRST_SIZE(ccr);
 	int off = 0;
 
-	if (pxs->desc->sgl.size)
-		bursts = x->bytes / pxs->desc->sgl.size;
-
+#ifdef CONFIG_NO_GKI
+	if (pxs->desc->rqtype == DMA_DEV_TO_MEM)
+		bursts = x->bytes / (BRST_SIZE(ccr) * BRST_LEN(ccr) +
+				     pxs->desc->dst_interlace_size);
+	else if (pxs->desc->rqtype == DMA_MEM_TO_DEV)
+		bursts = x->bytes / (BRST_SIZE(ccr) * BRST_LEN(ccr) +
+				     pxs->desc->src_interlace_size);
+#endif
 	while (bursts) {
 		c = bursts;
 		off += _loop(pl330, dry_run, &buf[off], &c, pxs);
 		bursts -= c;
 	}
-
-	if (!pxs->desc->sgl.src_icg && !pxs->desc->sgl.dst_icg)
+#ifdef CONFIG_NO_GKI
+	if (!pxs->desc->src_interlace_size &&
+	    !pxs->desc->dst_interlace_size)
 		off += _dregs(pl330, dry_run, &buf[off], pxs, num_dregs);
-
+#else
+	off += _dregs(pl330, dry_run, &buf[off], pxs, num_dregs);
+#endif
 	return off;
 }
 
@@ -1571,9 +1585,14 @@ static inline int _setup_xfer_cyclic(struct pl330_dmac *pl330,
 	unsigned long bursts = BYTE_TO_BURST(x->bytes, ccr);
 	int off = 0;
 
-	if (pxs->desc->sgl.size)
-		bursts = x->bytes / pxs->desc->sgl.size;
-
+#ifdef CONFIG_NO_GKI
+	if (pxs->desc->rqtype == DMA_DEV_TO_MEM)
+		bursts = x->bytes / (BRST_SIZE(ccr) * BRST_LEN(ccr)
+			+ pxs->desc->dst_interlace_size);
+	else if (pxs->desc->rqtype == DMA_MEM_TO_DEV)
+		bursts = x->bytes / (BRST_SIZE(ccr) * BRST_LEN(ccr)
+			+ pxs->desc->src_interlace_size);
+#endif
 	/* Setup Loop(s) */
 	off += _loop_cyclic(pl330, dry_run, &buf[off], bursts, pxs, ev);
 
@@ -2435,6 +2454,10 @@ static int pl330_config_write(struct dma_chan *chan,
 			pch->fifo_addr = slave_config->dst_addr;
 		if (slave_config->dst_addr_width)
 			pch->burst_sz = __ffs(slave_config->dst_addr_width);
+#ifdef CONFIG_NO_GKI
+		if (slave_config->src_interlace_size)
+			pch->slave_config.src_interlace_size = slave_config->src_interlace_size;
+#endif
 		pch->burst_len = fixup_burst_len(slave_config->dst_maxburst,
 			pch->dmac->quirks);
 	} else if (direction == DMA_DEV_TO_MEM) {
@@ -2442,6 +2465,10 @@ static int pl330_config_write(struct dma_chan *chan,
 			pch->fifo_addr = slave_config->src_addr;
 		if (slave_config->src_addr_width)
 			pch->burst_sz = __ffs(slave_config->src_addr_width);
+#ifdef CONFIG_NO_GKI
+		if (slave_config->dst_interlace_size)
+			pch->slave_config.dst_interlace_size = slave_config->dst_interlace_size;
+#endif
 		pch->burst_len = fixup_burst_len(slave_config->src_maxburst,
 			pch->dmac->quirks);
 	}
@@ -2794,10 +2821,6 @@ static struct dma_pl330_desc *pl330_get_desc(struct dma_pl330_chan *pch)
 	desc->cyclic = false;
 	desc->num_periods = 1;
 
-	desc->sgl.size = 0;
-	desc->sgl.src_icg = 0;
-	desc->sgl.dst_icg = 0;
-
 	dma_async_tx_descriptor_init(&desc->txd, &pch->chan);
 
 	return desc;
@@ -2913,82 +2936,10 @@ static struct dma_async_tx_descriptor *pl330_prep_dma_cyclic(
 	desc->cyclic = true;
 	desc->num_periods = len / period_len;
 	desc->txd.flags = flags;
-
-	return &desc->txd;
-}
-
-static struct dma_async_tx_descriptor *pl330_prep_interleaved_dma(
-	struct dma_chan *chan, struct dma_interleaved_template *xt,
-	unsigned long flags)
-{
-	struct dma_pl330_desc *desc = NULL;
-	struct dma_pl330_chan *pch = to_pchan(chan);
-	dma_addr_t dst = 0, src = 0;
-	size_t size, src_icg, dst_icg, period_bytes, buffer_bytes, full_buffer_bytes;
-	size_t nump = 0, numf = 0;
-
-	if (!xt->numf || !xt->sgl[0].size || xt->frame_size != 1)
-		return NULL;
-
 #ifdef CONFIG_NO_GKI
-	nump = xt->nump;
+	desc->src_interlace_size = pch->slave_config.src_interlace_size;
+	desc->dst_interlace_size = pch->slave_config.dst_interlace_size;
 #endif
-	numf = xt->numf;
-	size = xt->sgl[0].size;
-	period_bytes = size * nump;
-	buffer_bytes = size * numf;
-
-	if (flags & DMA_PREP_REPEAT && (!nump || (numf % nump)))
-		return NULL;
-
-	src_icg = dmaengine_get_src_icg(xt, &xt->sgl[0]);
-	dst_icg = dmaengine_get_dst_icg(xt, &xt->sgl[0]);
-
-	pl330_config_write(chan, &pch->slave_config, xt->dir);
-
-	if (!pl330_prep_slave_fifo(pch, xt->dir))
-		return NULL;
-
-	desc = pl330_get_desc(pch);
-	if (!desc) {
-		dev_err(chan->device->dev, "Failed to get desc\n");
-		return NULL;
-	}
-
-	if (xt->dir == DMA_MEM_TO_DEV) {
-		desc->rqcfg.src_inc = 1;
-		desc->rqcfg.dst_inc = 0;
-		src = xt->src_start;
-		dst = pch->fifo_dma;
-		full_buffer_bytes = (size + src_icg) * numf;
-	} else {
-		desc->rqcfg.src_inc = 0;
-		desc->rqcfg.dst_inc = 1;
-		src = pch->fifo_dma;
-		dst = xt->dst_start;
-		full_buffer_bytes = (size + dst_icg) * numf;
-	}
-
-	desc->rqtype = xt->dir;
-	desc->rqcfg.brst_size = pch->burst_sz;
-	desc->rqcfg.brst_len = pch->burst_len;
-	desc->bytes_requested = full_buffer_bytes;
-	desc->sgl.size = size;
-	desc->sgl.src_icg = src_icg;
-	desc->sgl.dst_icg = dst_icg;
-	desc->txd.flags = flags;
-
-	if (flags & DMA_PREP_REPEAT) {
-		desc->cyclic = true;
-		desc->num_periods = numf / nump;
-		fill_px(&desc->px, dst, src, period_bytes);
-	} else {
-		fill_px(&desc->px, dst, src, buffer_bytes);
-	}
-
-	dev_dbg(chan->device->dev, "size: %zu, src_icg: %zu, dst_icg: %zu, nump: %zu, numf: %zu\n",
-		size, src_icg, dst_icg, nump, numf);
-
 	return &desc->txd;
 }
 
@@ -3121,6 +3072,10 @@ pl330_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 		desc->rqcfg.brst_len = pch->burst_len;
 		desc->rqtype = direction;
 		desc->bytes_requested = sg_dma_len(sg);
+#ifdef CONFIG_NO_GKI
+		desc->src_interlace_size = pch->slave_config.src_interlace_size;
+		desc->dst_interlace_size = pch->slave_config.dst_interlace_size;
+#endif
 	}
 
 	/* Return the last desc in the chain */
@@ -3236,7 +3191,6 @@ pl330_probe(struct amba_device *adev, const struct amba_id *id)
 	struct resource *res;
 	int i, ret, irq;
 	int num_chan;
-	int val;
 	struct device_node *np = adev->dev.of_node;
 
 	ret = dma_set_mask_and_coherent(&adev->dev, DMA_BIT_MASK(32));
@@ -3251,12 +3205,7 @@ pl330_probe(struct amba_device *adev, const struct amba_id *id)
 	pd = &pl330->ddma;
 	pd->dev = &adev->dev;
 
-	if (!device_property_read_u32(&adev->dev, "arm,pl330-mcbufsz-bytes", &val)) {
-		if ((val > 0) && (val <= PAGE_SIZE))
-			pl330->mcbufsz = val;
-
-		dev_info(&adev->dev, "mcbufsz: %d bytes\n", pl330->mcbufsz);
-	}
+	pl330->mcbufsz = 0;
 
 	/* get quirk */
 	for (i = 0; i < ARRAY_SIZE(of_quirks); i++)
@@ -3356,16 +3305,12 @@ pl330_probe(struct amba_device *adev, const struct amba_id *id)
 		dma_cap_set(DMA_SLAVE, pd->cap_mask);
 		dma_cap_set(DMA_CYCLIC, pd->cap_mask);
 		dma_cap_set(DMA_PRIVATE, pd->cap_mask);
-		dma_cap_set(DMA_INTERLEAVE, pd->cap_mask);
-		dma_cap_set(DMA_REPEAT, pd->cap_mask);
-		dma_cap_set(DMA_LOAD_EOT, pd->cap_mask);
 	}
 
 	pd->device_alloc_chan_resources = pl330_alloc_chan_resources;
 	pd->device_free_chan_resources = pl330_free_chan_resources;
 	pd->device_prep_dma_memcpy = pl330_prep_dma_memcpy;
 	pd->device_prep_dma_cyclic = pl330_prep_dma_cyclic;
-	pd->device_prep_interleaved_dma = pl330_prep_interleaved_dma;
 	pd->device_tx_status = pl330_tx_status;
 	pd->device_prep_slave_sg = pl330_prep_slave_sg;
 	pd->device_config = pl330_config;

@@ -279,15 +279,6 @@ rockchip_rgb_encoder_atomic_check(struct drm_encoder *encoder,
 		s->output_mode = ROCKCHIP_OUT_MODE_P565;
 		s->output_if = VOP_OUTPUT_IF_RGB;
 		break;
-	case MEDIA_BUS_FMT_RGB565_2X8_LE:
-	case MEDIA_BUS_FMT_BGR565_2X8_LE:
-		s->output_mode = ROCKCHIP_OUT_MODE_S565;
-		s->output_if = VOP_OUTPUT_IF_RGB;
-		break;
-	case MEDIA_BUS_FMT_RGB666_3X6:
-		s->output_mode = ROCKCHIP_OUT_MODE_S666;
-		s->output_if = VOP_OUTPUT_IF_RGB;
-		break;
 	case MEDIA_BUS_FMT_RGB888_3X8:
 	case MEDIA_BUS_FMT_BGR888_3X8:
 		s->output_mode = ROCKCHIP_OUT_MODE_S888;
@@ -568,8 +559,6 @@ static int rockchip_mcu_panel_init(struct rockchip_rgb *rgb)
 				if (remote) {
 					np_crtc = of_get_next_parent(remote);
 					mcu_panel->np_crtc = np_crtc;
-
-					of_node_put(np_crtc);
 					break;
 				}
 			}
@@ -588,22 +577,16 @@ static int rockchip_mcu_panel_init(struct rockchip_rgb *rgb)
 
 			if (!np_mcu_timing) {
 				DRM_DEV_ERROR(dev, "failed to find timing config for mcu panel\n");
-				of_node_put(np_crtc);
 				return -EINVAL;
 			}
-
-			of_node_put(np_crtc);
 		}
 
 		ret = of_property_read_u32(np_mcu_timing, "mcu-pix-total", &val);
 		if (ret || val == 0) {
 			DRM_DEV_ERROR(dev, "failed to parse mcu_pix_total config\n");
-			of_node_put(np_mcu_timing);
 			return -EINVAL;
 		}
 		rgb->mcu_pix_total = val;
-
-		of_node_put(np_mcu_timing);
 	}
 
 	return 0;

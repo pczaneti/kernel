@@ -515,24 +515,22 @@
 		poll_delay_ms = <100>;
 	};
 
-	icm42607_acc: icm_acc@68 {
-		status = "okay";
-		compatible = "icm42607_acc";
+	mpu6500_acc: mpu_acc@68 {
+		compatible = "mpu6500_acc";
 		reg = <0x68>;
 		irq-gpio = <&gpio4 RK_PC2 IRQ_TYPE_EDGE_RISING>;
 		irq_enable = <0>;
 		poll_delay_ms = <30>;
 		type = <SENSOR_TYPE_ACCEL>;
-		layout = <0>;
+		layout = <5>;
 	};
 
-	icm42607_gyro: icm_gyro@68 {
-		status = "okay";
-		compatible = "icm42607_gyro";
+	mpu6500_gyro: mpu_gyro@68 {
+		compatible = "mpu6500_gyro";
 		reg = <0x68>;
 		poll_delay_ms = <30>;
 		type = <SENSOR_TYPE_GYROSCOPE>;
-		layout = <0>;
+		layout = <5>;
 	};
 };
 
@@ -582,11 +580,6 @@
 	};
 };
 
-&i2s2_2ch {
-	pinctrl-0 = <&i2s2m0_sclk &i2s2m0_lrck &i2s2m0_sdi &i2s2m0_sdo>;
-	status = "disabled";
-};
-
 &i2s5_8ch {
 	status = "okay";
 };
@@ -627,8 +620,6 @@
 &pcie3x4 {
 	reset-gpios = <&gpio4 RK_PB3 GPIO_ACTIVE_HIGH>;
 	vpcie3v3-supply = <&vcc3v3_pcie30>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&pcie30x4_clkreqn_m1>;
 	status = "okay";
 };
 
@@ -678,12 +669,6 @@
 	lcd {
 		lcd_rst_gpio: lcd-rst-gpio {
 			rockchip,pins = <0 RK_PD3 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-	};
-
-	pcie30x4 {
-		pcie30x4_clkreqn_m1: pcie30x4-clkreqn-m1 {
-			rockchip,pins = <4 RK_PB4 RK_FUNC_GPIO &pcfg_pull_down>;
 		};
 	};
 

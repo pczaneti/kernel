@@ -459,6 +459,51 @@
  * 11.fix image effect for frame two-run
  * 12.fix underperformance for frame two-run
  * 13.support unite mode for isp32
+ *
+ * v2.4.0 (AIQ v5.4.0)
+ * 1.fix rv1106g3 4k cmsk right
+ * 2.fix image effect for rv1106 4k
+ * 3.add RKISP_VICAP_CMD_QUICK_STREAM CMD
+ * 4.support suspend and resume
+ * 5.pm add call sensor s_power
+ * 6.suspend resume with rtt
+ * 7.fix resume hold by lut error
+ * 8.fix rv1106g3 4k can't cmsk rightmost
+ * 9.fix rv1106 resume no output
+ * 10.support to do reset in online mode
+ * 11.support change work mode to online with quick stream
+ * 12.fix build warning
+ * 13.frame timestamp change to sof
+ * 14.fix wnd_num cause array access out of bounds
+ * 15.fix rv1106 cycle kill rkipc null pointer
+ * 16.fix power_cnt if error
+ * 17.fix rockit set_fmt stuck
+ * 18.fix info2ddr no enable
+ * 19.fix reset can't open
+ * 20.more time to wait isp end
+ * 21.add mode for rv1106 suspend without rtt
+ * 22.fix is_on false cause pm isp die
+ *
+ * v2.5.0 (AIQ v5.5.0)
+ * 1.wrap mode first done don't send event
+ * 2.fix 4k and dual_sensor pm oneframe error
+ * 3.isp32 using ktime_get_boottime_ns
+ * 4.fix wait timeout with thunderboot
+ * 5.add buf cnt info to procfs
+ * 6.sync irq_ends
+ * 7.fix resume mi no enable
+ * 8.fix isp32 lost buf
+ * 9.frame start to check and config next buf
+ * 10.fix isp stop to enable isp ctrl
+ * 11.fix isp32 buf no update to hw
+ * 12.add rkisp_buf_dbg
+ * 13.fix isp stop to read stats buf
+ * 14.support multiple wrap
+ * 15.dvbm buf support from rockit
+ * 16.add RKISP_CMD_SET_TB_HEAD_V32 API
+ * 17.add ioctl to get bay3d buf
+ * 18.fix isp32 lite frame buffer data read
+ * 19.support 8k for isp32 lite
  */
 
 #define RKISP_DRIVER_VERSION RKISP_API_VERSION

@@ -9,6 +9,9 @@
 
 / {
 	aliases {
+		csi2dphy3 = &csi2_dphy3;
+		csi2dphy4 = &csi2_dphy4;
+		csi2dphy5 = &csi2_dphy5;
 		dp0 = &dp0;
 		dp1 = &dp1;
 		edp0 = &edp0;
@@ -25,6 +28,27 @@
 		rkcif_mipi_lvds5= &rkcif_mipi_lvds5;
 		usbdp0 = &usbdp_phy0;
 		usbdp1 = &usbdp_phy1;
+	};
+
+	/* dphy1 full mode */
+	csi2_dphy3: csi2-dphy3 {
+		compatible = "rockchip,rk3568-csi2-dphy";
+		rockchip,hw = <&csi2_dphy1_hw>;
+		status = "disabled";
+	};
+
+	/* dphy1 split mode 01 */
+	csi2_dphy4: csi2-dphy4 {
+		compatible = "rockchip,rk3568-csi2-dphy";
+		rockchip,hw = <&csi2_dphy1_hw>;
+		status = "disabled";
+	};
+
+	/* dphy1 split mode 23 */
+	csi2_dphy5: csi2-dphy5 {
+		compatible = "rockchip,rk3568-csi2-dphy";
+		rockchip,hw = <&csi2_dphy1_hw>;
+		status = "disabled";
 	};
 
 	rkcif_mipi_lvds4: rkcif-mipi-lvds4 {
@@ -111,8 +135,6 @@
 			phy-names = "usb2-phy", "usb3-phy";
 			phy_type = "utmi_wide";
 			snps,dis_enblslpm_quirk;
-			snps,dis-u1-entry-quirk;
-			snps,dis-u2-entry-quirk;
 			snps,dis-u2-freeclk-exists-quirk;
 			snps,dis-del-phy-power-chg-quirk;
 			snps,dis-tx-ipgap-linecheck-quirk;
@@ -167,6 +189,34 @@
 	hdptxphy1_grf: syscon@fd5e4000 {
 		compatible = "rockchip,rk3588-hdptxphy-grf", "syscon";
 		reg = <0x0 0xfd5e4000 0x0 0x100>;
+	};
+
+	mipi4_csi2: mipi4-csi2@fdd50000 {
+		compatible = "rockchip,rk3588-mipi-csi2";
+		reg = <0x0 0xfdd50000 0x0 0x10000>;
+		reg-names = "csihost_regs";
+		interrupts = <GIC_SPI 151 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 152 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "csi-intr1", "csi-intr2";
+		clocks = <&cru PCLK_CSI_HOST_4>;
+		clock-names = "pclk_csi2host";
+		resets = <&cru SRST_P_CSI_HOST_4>;
+		reset-names = "srst_csihost_p";
+		status = "disabled";
+	};
+
+	mipi5_csi2: mipi5-csi2@fdd60000 {
+		compatible = "rockchip,rk3588-mipi-csi2";
+		reg = <0x0 0xfdd60000 0x0 0x10000>;
+		reg-names = "csihost_regs";
+		interrupts = <GIC_SPI 153 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 154 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "csi-intr1", "csi-intr2";
+		clocks = <&cru PCLK_CSI_HOST_5>;
+		clock-names = "pclk_csi2host";
+		resets = <&cru SRST_P_CSI_HOST_5>;
+		reset-names = "srst_csihost_p";
+		status = "disabled";
 	};
 
 	spdif_tx5: spdif-tx@fddb8000 {
@@ -327,7 +377,7 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 
-			port@0 {
+			dp1_in: port@0 {
 				reg = <0>;
 				#address-cells = <1>;
 				#size-cells = <0>;
@@ -350,18 +400,12 @@
 					status = "disabled";
 				};
 			};
-
-			port@1 {
-				reg = <1>;
-
-				dp1_out: endpoint { };
-			};
 		};
 	};
 
 	hdmi1: hdmi@fdea0000 {
 		compatible = "rockchip,rk3588-dw-hdmi";
-		reg = <0x0 0xfdea0000 0x0 0x10000>, <0x0 0xfdeb0000 0x0 0x10000>;
+		reg = <0x0 0xfdea0000 0x0 0x20000>;
 		interrupts = <GIC_SPI 173 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SPI 174 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SPI 175 IRQ_TYPE_LEVEL_HIGH>,
@@ -451,7 +495,7 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 
-			port@0 {
+			edp1_in: port@0 {
 				reg = <0>;
 				#address-cells = <1>;
 				#size-cells = <0>;
@@ -473,12 +517,6 @@
 					remote-endpoint = <&vp2_out_edp1>;
 					status = "disabled";
 				};
-			};
-
-			port@1 {
-				reg = <1>;
-
-				edp1_out: endpoint { };
 			};
 		};
 	};
@@ -680,13 +718,6 @@
 		};
 	};
 
-	gmac_uio0: uio@fe1b0000 {
-		compatible = "rockchip,uio-gmac";
-		reg = <0x0 0xfe1b0000 0x0 0x10000>;
-		rockchip,ethernet = <&gmac0>;
-		status = "disabled";
-	};
-
 	gmac0: ethernet@fe1b0000 {
 		compatible = "rockchip,rk3588-gmac", "snps,dwmac-4.20a";
 		reg = <0x0 0xfe1b0000 0x0 0x10000>;
@@ -726,13 +757,15 @@
 		};
 
 		gmac0_mtl_rx_setup: rx-queues-config {
-			snps,rx-queues-to-use = <1>;
+			snps,rx-queues-to-use = <2>;
 			queue0 {};
+			queue1 {};
 		};
 
 		gmac0_mtl_tx_setup: tx-queues-config {
-			snps,tx-queues-to-use = <1>;
+			snps,tx-queues-to-use = <2>;
 			queue0 {};
+			queue1 {};
 		};
 	};
 
@@ -815,6 +848,18 @@
 			#phy-cells = <0>;
 			status = "disabled";
 		};
+	};
+
+	csi2_dphy1_hw: csi2-dphy1-hw@fedc8000 {
+		compatible = "rockchip,rk3588-csi2-dphy-hw";
+		reg = <0x0 0xfedc8000 0x0 0x8000>;
+		clocks = <&cru PCLK_CSIPHY1>;
+		clock-names = "pclk";
+		resets = <&cru SRST_CSIPHY1>, <&cru SRST_P_CSIPHY1>;
+		reset-names = "srst_csiphy1", "srst_p_csiphy1";
+		rockchip,grf = <&mipidphy1_grf>;
+		rockchip,sys_grf = <&sys_grf>;
+		status = "disabled";
 	};
 
 	combphy1_ps: phy@fee10000 {

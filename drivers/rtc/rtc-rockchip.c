@@ -86,6 +86,7 @@
 
 #define RTC_VREF_INIT			0x40
 
+#define CLK_32K_ENABLE			BIT(5)
 #define D2A_POR_REG_SEL1		BIT(4)
 #define D2A_POR_REG_SEL0		BIT(1)
 
@@ -124,6 +125,7 @@ struct rockchip_rtc {
 	unsigned int flag;
 	unsigned int mode;
 	struct delayed_work trim_work;
+	bool suspend_bypass;
 };
 
 static unsigned int rockchip_rtc_write(struct regmap *map,
@@ -555,6 +557,31 @@ static void rockchip_rtc_compensation_delay_work(struct work_struct *work)
 	return;
 }
 
+static bool rockchip_rtc_is_trimed(struct rockchip_rtc *rtc)
+{
+	int ret, comp_done;
+
+	ret = regmap_read(rtc->regmap, RTC_CTRL, &comp_done);
+	if (ret) {
+		pr_err("%s: Failed to read RTC_CTRL: %d\n", __func__, ret);
+		return false;
+	}
+	return (comp_done & CLK32K_COMP_EN) == CLK32K_COMP_EN;
+}
+
+static void rockchip_rtc_trim_start(struct rockchip_rtc *rtc)
+{
+	if (!rockchip_rtc_is_trimed(rtc))
+		queue_delayed_work(system_long_wq, &rtc->trim_work,
+				   msecs_to_jiffies(5000));
+}
+
+static void __maybe_unused rockchip_rtc_trim_close(struct rockchip_rtc *rtc)
+{
+	if (!rockchip_rtc_is_trimed(rtc))
+		cancel_delayed_work_sync(&rtc->trim_work);
+}
+
 /* Enable the alarm if it should be enabled (in case it was disabled to
  * prevent use as a wake source).
  */
@@ -565,8 +592,13 @@ static int rockchip_rtc_suspend(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct rockchip_rtc *rtc = dev_get_drvdata(&pdev->dev);
 
+	if (rtc->suspend_bypass)
+		return 0;
+
 	if (device_may_wakeup(dev))
 		enable_irq_wake(rtc->irq);
+
+	rockchip_rtc_trim_close(rtc);
 
 	if (rtc->grf) {
 		switch (rtc->mode) {
@@ -592,6 +624,9 @@ static int rockchip_rtc_resume(struct device *dev)
 	struct rockchip_rtc *rtc = dev_get_drvdata(&pdev->dev);
 	int ret;
 
+	if (rtc->suspend_bypass)
+		return 0;
+
 	if (device_may_wakeup(dev))
 		disable_irq_wake(rtc->irq);
 
@@ -610,6 +645,7 @@ static int rockchip_rtc_resume(struct device *dev)
 		dev_err(dev, "Cannot enable clock.\n");
 		return ret;
 	}
+	rockchip_rtc_trim_start(rtc);
 
 	return 0;
 }
@@ -689,8 +725,10 @@ static int rockchip_rtc_probe(struct platform_device *pdev)
 				     "Failed to add clk disable action.");
 
 	ret = rockchip_rtc_update_bits(rtc->regmap, RTC_VPTAT_TRIM,
-				       D2A_POR_REG_SEL1,
-				       D2A_POR_REG_SEL1);
+				       D2A_POR_REG_SEL1 |
+				       CLK_32K_ENABLE,
+				       D2A_POR_REG_SEL1 |
+				       CLK_32K_ENABLE);
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret,
 				     "Failed to write RTC_VPTAT_TRIM\n");
@@ -760,8 +798,12 @@ static int rockchip_rtc_probe(struct platform_device *pdev)
 				     "Failed to request alarm IRQ %d\n",
 				     rtc->irq);
 
+	/* If rtc 32k used as time for deep sleep, the rtc suspend func bypass do nothing. */
+	rtc->suspend_bypass = device_property_read_bool(&pdev->dev,
+							"rockchip,rtc-suspend-bypass");
+
 	INIT_DELAYED_WORK(&rtc->trim_work, rockchip_rtc_compensation_delay_work);
-	queue_delayed_work(system_long_wq, &rtc->trim_work, 3000);
+	rockchip_rtc_trim_start(rtc);
 
 	return rtc_register_device(rtc->rtc);
 }

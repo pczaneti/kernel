@@ -164,7 +164,6 @@ config PHY_ROCKCHIP_TYPEC
 	select EXTCON
 	select GENERIC_PHY
 	select RESET_CONTROLLER
-	select TYPEC
 	help
 	  Enable this to support the Rockchip USB TYPEC PHY.
 

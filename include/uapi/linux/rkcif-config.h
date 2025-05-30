@@ -37,7 +37,10 @@
 	_IOW('V', BASE_VIDIOC_PRIVATE + 7, struct rkcif_csi_info)
 
 #define RKCIF_CMD_SET_QUICK_STREAM \
-	_IOW('V', BASE_VIDIOC_PRIVATE + 8, int)
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 8, struct rkcif_quick_stream_param)
+
+#define RKCIF_CMD_START_CAPTURE_ONE_FRAME_AOV \
+	_IOW('V', BASE_VIDIOC_PRIVATE + 9, int)
 
 /* cif memory mode
  * 0: raw12/raw10/raw8 8bit memory compact
@@ -65,10 +68,10 @@ enum cif_csi_lvds_memory {
  */
 
 struct bayer_blc {
-	__u8 pattern00;
-	__u8 pattern01;
-	__u8 pattern02;
-	__u8 pattern03;
+	u8 pattern00;
+	u8 pattern01;
+	u8 pattern02;
+	u8 pattern03;
 };
 
 struct rkcif_fps {
@@ -80,6 +83,12 @@ struct rkcif_csi_info {
 	int csi_num;
 	int csi_idx[RKCIF_MAX_CSI_NUM];
 	int dphy_vendor[RKCIF_MAX_CSI_NUM];
+};
+
+struct rkcif_quick_stream_param {
+	int on;
+	__u32 frame_num;
+	int resume_mode;
 };
 
 #endif

@@ -158,7 +158,6 @@ config ROCKCHIP_RAMDISK
 
 config ROCKCHIP_SUSPEND_MODE
 	tristate "Rockchip suspend mode config"
-	depends on ROCKCHIP_SIP
 	help
 	  Say Y here if you want to set the suspend mode to the ATF.
 
@@ -189,12 +188,6 @@ config ROCKCHIP_MTD_VENDOR_STORAGE
 	depends on ROCKCHIP_VENDOR_STORAGE && MTD
 	help
 	  Say y here to enable rockchip mtd vendor storage support.
-
-config ROCKCHIP_RAM_VENDOR_STORAGE
-	tristate "Rockchip ram vendor storage support"
-	depends on ROCKCHIP_VENDOR_STORAGE
-	help
-	  Say y here to enable rockchip ram vendor storage support.
 
 config ROCKCHIP_VENDOR_STORAGE_UPDATE_LOADER
 	bool "Rockchip vendor storage update loader support"
@@ -278,8 +271,6 @@ config RK_MEMBLOCK_PROCFS
 	help
 	  Extend memblock procfs to show size of each memblock, and shows the
 	  result of total size by KiB format.
-
-source "drivers/soc/rockchip/minidump/Kconfig"
 
 endmenu
 

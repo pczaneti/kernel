@@ -6,6 +6,7 @@
 /dts-v1/;
 
 #include "rv1106g-evb1-v10.dts"
+//#include "rv1106g3.dtsi"
 
 / {
 	model = "Rockchip RV1106G EVB1 V11 Board";
@@ -35,7 +36,7 @@
 };
 
 &usbdrd_dwc3 {
-	dr_mode = "peripheral";
+	dr_mode = "otg";
 };
 
 &vdd_arm {

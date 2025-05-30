@@ -43,6 +43,7 @@
 #include <linux/printk.h>
 
 #include <linux/rk-camera-module.h>
+#include "../platform/rockchip/isp/rkisp_tb_helper.h"
 #define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x01)
 
 #ifndef V4L2_CID_DIGITAL_GAIN
@@ -80,7 +81,7 @@
 #define SC530AI_REG_ANA_GAIN		0x3e09
 
 #define SC530AI_GAIN_MIN		0x20
-#define SC530AI_GAIN_MAX		(32 * 326)
+#define SC530AI_GAIN_MAX		(9635) //76.48 * 3.938 * 32
 #define SC530AI_GAIN_STEP		1
 #define SC530AI_GAIN_DEFAULT		0x20
 
@@ -195,6 +196,8 @@ struct sc530ai {
 	const char		*module_name;
 	const char		*len_name;
 	bool			has_init_exp;
+	bool			is_thunderboot;
+	bool			is_first_streamoff;
 	struct preisp_hdrae_exp_s init_hdrae_exp;
 };
 
@@ -1014,39 +1017,40 @@ static void sc530ai_get_gain_reg(u32 total_gain, u32 *again, u32 *dgain,
 		*again = 0x00;
 		*dgain = 0x00;
 		*dgain_fine = gain_factor * 128 / 1000;
-	} else if (gain_factor < 2550) { /* 2x - 2.55x gain */
+	} else if (gain_factor < 2390) { /* 2x - 2.39x gain */
 		*again = 0x01;
 		*dgain = 0x00;
 		*dgain_fine = gain_factor * 128 / 2000;
-	} else if (gain_factor < 2550 * 2) { /* 2.55x - 5.1x gain */
+	} else if (gain_factor < 2390 * 2) { /* 2.39x - 4.78x gain */
 		*again = 0x40;
 		*dgain = 0x00;
-		*dgain_fine = gain_factor * 128 / 2550;
-	} else if (gain_factor < 2550 * 4) { /* 5.1x - 10.2x gain */
+		*dgain_fine = gain_factor * 128 / 2390;
+	} else if (gain_factor < 2390 * 4) { /* 4.78x - 9.56x gain */
 		*again = 0x48;
 		*dgain = 0x00;
-		*dgain_fine = gain_factor * 128 / 5110;
-	} else if (gain_factor < 2550 * 8) { /* 10.2x - 20.4x gain */
+		*dgain_fine = gain_factor * 128 / 2390 / 2;
+	} else if (gain_factor < 2390 * 8) { /* 9.56x - 19.12x gain */
 		*again = 0x49;
 		*dgain = 0x00;
-		*dgain_fine = gain_factor * 128 / 10200;
-	} else if (gain_factor < 2550 * 16) { /* 20.4x - 40.8x gain */
+		*dgain_fine = gain_factor * 128 / 2390 / 4;
+	} else if (gain_factor < 2390 * 16) { /* 19.12x - 38.24x gain */
 		*again = 0x4B;
 		*dgain = 0x00;
-		*dgain_fine = gain_factor * 128 / 20400;
-	} else if (gain_factor < 2550 * 32) { /* 40.8x - 81.6x gain */
+		*dgain_fine = gain_factor * 128 / 2390 / 8;
+	} else if (gain_factor < 2390 * 32) { /* 38.24x - 76.48x gain */
 		*again = 0x4f;
 		*dgain = 0x00;
-		*dgain_fine = gain_factor * 128 / 40800;
-	} else if (gain_factor < 2550 * 64) { /* 81.6x - 163.2x gain */
+		*dgain_fine = gain_factor * 128 / 2390 / 16;
+	} else if (gain_factor < 2390 * 64) { /* 76.48x - 152.96x gain */
 		*again = 0x5f;
 		*dgain = 0x00;
-		*dgain_fine = gain_factor * 128 / 40800 / 2;
-	} else if (gain_factor < 2550 * 128) { /* 163.2x - 326.4x gain */
+		*dgain_fine = gain_factor * 128 / 2390 / 32;
+	} else if (gain_factor < 2390 * 128) { /* 152.96x - 301.1x gain */
 		*again = 0x5f;
 		*dgain = 0x01;
-		*dgain_fine = gain_factor * 128 / 40800 / 4;
+		*dgain_fine = gain_factor * 128 / 2390 / 64;
 	}
+	*dgain_fine = *dgain_fine / 4 * 4;
 }
 
 static int sc530ai_set_hdrae(struct sc530ai *sc530ai,
@@ -1351,21 +1355,23 @@ static int __sc530ai_start_stream(struct sc530ai *sc530ai)
 {
 	int ret;
 
-	ret = sc530ai_write_array(sc530ai->client, sc530ai->cur_mode->reg_list);
-	if (ret)
-		return ret;
-
-	/* In case these controls are set before streaming */
-	ret = __v4l2_ctrl_handler_setup(&sc530ai->ctrl_handler);
-	if (ret)
-		return ret;
-	if (sc530ai->has_init_exp && sc530ai->cur_mode->hdr_mode != NO_HDR) {
-		ret = sc530ai_ioctl(&sc530ai->subdev, PREISP_CMD_SET_HDRAE_EXP,
-				    &sc530ai->init_hdrae_exp);
-		if (ret) {
-			dev_err(&sc530ai->client->dev,
-				"init exp fail in hdr mode\n");
+	if (!sc530ai->is_thunderboot) {
+		ret = sc530ai_write_array(sc530ai->client, sc530ai->cur_mode->reg_list);
+		if (ret)
 			return ret;
+
+		/* In case these controls are set before streaming */
+		ret = __v4l2_ctrl_handler_setup(&sc530ai->ctrl_handler);
+		if (ret)
+			return ret;
+		if (sc530ai->has_init_exp && sc530ai->cur_mode->hdr_mode != NO_HDR) {
+			ret = sc530ai_ioctl(&sc530ai->subdev, PREISP_CMD_SET_HDRAE_EXP,
+						&sc530ai->init_hdrae_exp);
+			if (ret) {
+				dev_err(&sc530ai->client->dev,
+					"init exp fail in hdr mode\n");
+				return ret;
+			}
 		}
 	}
 	return sc530ai_write_reg(sc530ai->client, SC530AI_REG_CTRL_MODE,
@@ -1376,11 +1382,16 @@ static int __sc530ai_start_stream(struct sc530ai *sc530ai)
 static int __sc530ai_stop_stream(struct sc530ai *sc530ai)
 {
 	sc530ai->has_init_exp = false;
+	if (sc530ai->is_thunderboot) {
+		sc530ai->is_first_streamoff = true;
+		pm_runtime_put(&sc530ai->client->dev);
+	}
 	return sc530ai_write_reg(sc530ai->client, SC530AI_REG_CTRL_MODE,
 				 SC530AI_REG_VALUE_08BIT,
 				 SC530AI_MODE_SW_STANDBY);
 }
 
+static int __sc530ai_power_on(struct sc530ai *sc530ai);
 static int sc530ai_s_stream(struct v4l2_subdev *sd, int on)
 {
 	struct sc530ai *sc530ai = to_sc530ai(sd);
@@ -1392,6 +1403,10 @@ static int sc530ai_s_stream(struct v4l2_subdev *sd, int on)
 	if (on == sc530ai->streaming)
 		goto unlock_and_return;
 	if (on) {
+		if (sc530ai->is_thunderboot && rkisp_tb_get_state() == RKISP_TB_NG) {
+			sc530ai->is_thunderboot = false;
+			__sc530ai_power_on(sc530ai);
+		}
 		ret = pm_runtime_get_sync(&client->dev);
 		if (ret < 0) {
 			pm_runtime_put_noidle(&client->dev);
@@ -1434,13 +1449,18 @@ static int sc530ai_s_power(struct v4l2_subdev *sd, int on)
 			pm_runtime_put_noidle(&client->dev);
 			goto unlock_and_return;
 		}
-
-		ret |= sc530ai_write_reg(sc530ai->client,
-					 SC530AI_SOFTWARE_RESET_REG,
-					 SC530AI_REG_VALUE_08BIT,
-					 0x01);
-		usleep_range(100, 200);
-
+		if (!sc530ai->is_thunderboot) {
+			ret |= sc530ai_write_reg(sc530ai->client,
+						SC530AI_SOFTWARE_RESET_REG,
+						SC530AI_REG_VALUE_08BIT,
+						0x01);
+			if (ret) {
+				v4l2_err(sd, "could not set init registers\n");
+				pm_runtime_put_noidle(&client->dev);
+				goto unlock_and_return;
+			}
+			usleep_range(100, 200);
+		}
 		sc530ai->power_on = true;
 	} else {
 		pm_runtime_put(&client->dev);
@@ -1474,6 +1494,10 @@ static int __sc530ai_power_on(struct sc530ai *sc530ai)
 		dev_err(dev, "Failed to enable xvclk\n");
 		return ret;
 	}
+
+	if (sc530ai->is_thunderboot)
+		return 0;
+
 	if (!IS_ERR(sc530ai->reset_gpio))
 		gpiod_set_value_cansleep(sc530ai->reset_gpio, 0);
 
@@ -1503,6 +1527,15 @@ static void __sc530ai_power_off(struct sc530ai *sc530ai)
 {
 	int ret;
 	struct device *dev = &sc530ai->client->dev;
+
+	if (sc530ai->is_thunderboot) {
+		if (sc530ai->is_first_streamoff) {
+			sc530ai->is_thunderboot = false;
+			sc530ai->is_first_streamoff = false;
+		} else {
+			return;
+		}
+	}
 
 	if (!IS_ERR(sc530ai->pwdn_gpio))
 		gpiod_set_value_cansleep(sc530ai->pwdn_gpio, 0);
@@ -1903,6 +1936,10 @@ static int sc530ai_check_sensor_id(struct sc530ai *sc530ai,
 	u32 id = 0;
 	int ret;
 
+	if (sc530ai->is_thunderboot) {
+		dev_info(dev, "Enable thunderboot mode, skip sensor id check\n");
+		return 0;
+	}
 	ret = sc530ai_read_reg(client, SC530AI_REG_CHIP_ID,
 			       SC530AI_REG_VALUE_16BIT, &id);
 	if (id != SC530AI_CHIP_ID) {
@@ -1961,6 +1998,7 @@ static int sc530ai_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
+	sc530ai->is_thunderboot = IS_ENABLED(CONFIG_VIDEO_ROCKCHIP_THUNDER_BOOT_ISP);
 	sc530ai->client = client;
 
 	ret = sc530ai_parse_of(sc530ai);
@@ -1973,11 +2011,13 @@ static int sc530ai_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	sc530ai->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
+	sc530ai->reset_gpio = devm_gpiod_get(dev, "reset",
+		sc530ai->is_thunderboot ? GPIOD_ASIS : GPIOD_OUT_LOW);
 	if (IS_ERR(sc530ai->reset_gpio))
 		dev_warn(dev, "Failed to get reset-gpios\n");
 
-	sc530ai->pwdn_gpio = devm_gpiod_get(dev, "pwdn", GPIOD_OUT_LOW);
+	sc530ai->pwdn_gpio = devm_gpiod_get(dev, "pwdn",
+		sc530ai->is_thunderboot ? GPIOD_ASIS : GPIOD_OUT_LOW);
 	if (IS_ERR(sc530ai->pwdn_gpio))
 		dev_warn(dev, "Failed to get pwdn-gpios\n");
 
@@ -2051,7 +2091,10 @@ static int sc530ai_probe(struct i2c_client *client,
 
 	pm_runtime_set_active(dev);
 	pm_runtime_enable(dev);
-	pm_runtime_idle(dev);
+	if (sc530ai->is_thunderboot)
+		pm_runtime_get_sync(dev);
+	else
+		pm_runtime_idle(dev);
 
 	return 0;
 

@@ -751,14 +751,9 @@ static int vdpu_3036_set_grf(struct mpp_dev *mpp)
 
 		list_for_each_entry_safe(loop, n, &queue->dev_list, queue_link) {
 			if (test_bit(loop->var->device_type, &queue->dev_active_flags)) {
-				mpp_set_grf(loop->grf_info);
-				if (loop->hw_ops->clk_on)
-					loop->hw_ops->clk_on(loop);
 				if (loop->hw_ops->reset)
 					loop->hw_ops->reset(loop);
 				rockchip_iommu_disable(loop->dev);
-				if (loop->hw_ops->clk_off)
-					loop->hw_ops->clk_off(loop);
 				clear_bit(loop->var->device_type, &queue->dev_active_flags);
 			}
 		}
@@ -888,10 +883,12 @@ static const struct of_device_id mpp_vdpu1_dt_match[] = {
 		.data = &vdpu_3368_data,
 	},
 #endif
+#ifdef CONFIG_CPU_RK3328
 	{
 		.compatible = "rockchip,avs-plus-decoder",
 		.data = &avsd_plus_data,
 	},
+#endif
 	{},
 };
 

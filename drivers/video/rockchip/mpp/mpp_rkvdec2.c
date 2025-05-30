@@ -262,7 +262,7 @@ int rkvdec2_task_init(struct mpp_dev *mpp, struct mpp_session *session,
 	task->strm_addr = task->reg[RKVDEC_REG_RLC_BASE_INDEX];
 	task->clk_mode = CLK_MODE_NORMAL;
 	task->slot_idx = -1;
-	init_waitqueue_head(&mpp_task->wait);
+	init_waitqueue_head(&task->wait);
 	/* get resolution info */
 	if (session->priv) {
 		struct rkvdec2_session_priv *priv = session->priv;
@@ -830,7 +830,7 @@ static struct devfreq_cooling_power vdec2_cooling_power_data = {
 };
 
 static struct monitor_dev_profile vdec2_mdevp = {
-	.type = MONITOR_TYPE_DEV,
+	.type = MONITOR_TPYE_DEV,
 	.low_temp_adjust = rockchip_monitor_dev_low_temp_adjust,
 	.high_temp_adjust = rockchip_monitor_dev_high_temp_adjust,
 };
@@ -1581,7 +1581,7 @@ static int rkvdec2_core_probe(struct platform_device *pdev)
 		mpp->dev_ops->task_worker = rkvdec2_hard_ccu_worker;
 		irq_proc = rkvdec2_hard_ccu_irq;
 	}
-	mpp->fault_handler = rkvdec2_ccu_iommu_fault_handle;
+	mpp->iommu_info->hdl = rkvdec2_ccu_iommu_fault_handle;
 	kthread_init_work(&mpp->work, mpp->dev_ops->task_worker);
 
 	/* get irq request */
@@ -1688,9 +1688,8 @@ static int rkvdec2_free_rcbbuf(struct platform_device *pdev, struct rkvdec2_dev 
 
 	if (dec->rcb_page) {
 		size_t page_size = PAGE_ALIGN(dec->rcb_size - dec->sram_size);
-		int order = min(get_order(page_size), MAX_ORDER);
 
-		__free_pages(dec->rcb_page, order);
+		__free_pages(dec->rcb_page, get_order(page_size));
 	}
 	if (dec->rcb_iova) {
 		domain = dec->mpp.iommu_info->domain;

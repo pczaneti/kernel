@@ -8,22 +8,6 @@
 
 #include <linux/types.h>
 
-/* rkep device mode status definition */
-#define RKEP_MODE_BOOTROM       1
-#define RKEP_MODE_LOADER        2
-#define RKEP_MODE_KERNEL        3
-#define RKEP_MODE_FUN0          4
-/* Common status */
-#define RKEP_SMODE_INIT         0
-#define RKEP_SMODE_LNKRDY       1
-#define RKEP_SMODE_LNKUP        2
-#define RKEP_SMODE_ERR          0xff
-/* Firmware download status */
-#define RKEP_SMODE_FWDLRDY      0x10
-#define RKEP_SMODE_FWDLDONE     0x11
-/* Application status*/
-#define RKEP_SMODE_APPRDY       0x20
-
 /*
  * rockchip pcie driver elbi ioctrl output data
  */
@@ -38,21 +22,6 @@ struct pcie_ep_user_data {
 struct pcie_ep_dma_cache_cfg {
 	__u64 addr;
 	__u32 size;
-};
-
-struct pcie_ep_dma_block {
-	__u64 bus_paddr;
-	__u64 local_paddr;
-	__u32 size;
-};
-
-struct pcie_ep_dma_block_req {
-	__u16 vir_id;	/* Default 0 */
-	__u8 chn;
-	__u8 wr;
-	__u32 flag;
-#define PCIE_EP_DMA_BLOCK_FLAG_COHERENT BIT(0)		/* Cache coherent, 1-need, 0-None */
-	struct pcie_ep_dma_block block;
 };
 
 #define	PCIE_EP_OBJ_INFO_MAGIC 0x524B4550
@@ -83,11 +52,7 @@ enum pcie_ep_mmap_resource {
 struct pcie_ep_obj_info {
 	__u32 magic;
 	__u32 version;
-	struct {
-		__u16 mode;
-		__u16 submode;
-	} devmode;
-	__u8 reserved[0x1F4];
+	__u8 reserved[0x1F8];
 
 	__u32 irq_type_rc;					/* Generate in ep isr, valid only for rc, clear in rc */
 	struct pcie_ep_obj_irq_dma_status dma_status_rc;	/* Generate in ep isr, valid only for rc, clear in rc */
@@ -104,9 +69,5 @@ struct pcie_ep_obj_info {
 #define PCIE_DMA_RAISE_MSI_OBJ_IRQ_USER	_IOW(PCIE_BASE, 4, int)
 #define PCIE_EP_GET_USER_INFO		_IOR(PCIE_BASE, 5, struct pcie_ep_user_data)
 #define PCIE_EP_SET_MMAP_RESOURCE	_IOW(PCIE_BASE, 6, enum pcie_ep_mmap_resource)
-#define PCIE_EP_RAISE_ELBI		_IOW(PCIE_BASE, 7, int)
-#define PCIE_EP_REQUEST_VIRTUAL_ID	_IOR(PCIE_BASE, 16, int)
-#define PCIE_EP_RELEASE_VIRTUAL_ID	_IOW(PCIE_BASE, 17, int)
-#define PCIE_EP_DMA_XFER_BLOCK		_IOW(PCIE_BASE, 32, struct pcie_ep_dma_block_req)
 
 #endif

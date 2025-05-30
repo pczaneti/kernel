@@ -1258,7 +1258,7 @@ int xhci_resume(struct xhci_hcd *xhci, bool hibernated)
 		 * the first wake signalling failed, give it that chance.
 		 */
 		pending_portevent = xhci_pending_portevent(xhci);
-		if (!pending_portevent && !IS_ENABLED(CONFIG_ARCH_ROCKCHIP)) {
+		if (!pending_portevent) {
 			msleep(120);
 			pending_portevent = xhci_pending_portevent(xhci);
 		}

@@ -214,10 +214,7 @@ static void rk3308_init(void)
 
 static void rk3528_init(void)
 {
-	if (of_machine_is_compatible("rockchip,rk3528"))
-		rockchip_soc_id = ROCKCHIP_SOC_RK3528;
-	else if (of_machine_is_compatible("rockchip,rk3528a"))
-		rockchip_soc_id = ROCKCHIP_SOC_RK3528A;
+	rockchip_soc_id = ROCKCHIP_SOC_RK3528;
 }
 
 #define RK356X_PMU_GRF_PHYS		0xfdc20000
@@ -238,12 +235,6 @@ static void rk356x_set_cpu_version(void)
 static void rk3566_init(void)
 {
 	rockchip_soc_id = ROCKCHIP_SOC_RK3566;
-	rk356x_set_cpu_version();
-}
-
-static void rk3567_init(void)
-{
-	rockchip_soc_id = ROCKCHIP_SOC_RK3567;
 	rk356x_set_cpu_version();
 }
 
@@ -279,8 +270,6 @@ int rockchip_soc_id_init(void)
 		rk3528_init();
 	}  else if (cpu_is_rk3566()) {
 		rk3566_init();
-	}  else if (cpu_is_rk3567()) {
-		rk3567_init();
 	} else if (cpu_is_rk3568()) {
 		rk3568_init();
 	} else if (cpu_is_px30()) {

@@ -239,14 +239,8 @@
 #define DPTX_HDCP22GPIOCHNGSTS			0x362c
 #define DPTX_HDCPREG_DPK_CRC			0x3630
 
-#define HDCP_KEY_SIZE				308
-#define HDCP_KEY_SEED_SIZE			2
-
 #define HDCP_DATA_SIZE				330
 #define DP_HDCP1X_ID				6
-
-#define HDCP_SIG_MAGIC				0x4B534541	/* "AESK" */
-#define HDCP_FLG_AES				1
 
 #define DPTX_MAX_REGISTER			DPTX_HDCPREG_DPK_CRC
 
@@ -402,8 +396,6 @@ struct dw_dp {
 	struct rockchip_drm_sub_dev sub_dev;
 	struct dw_dp_hdcp hdcp;
 	int eotf_type;
-
-	u32 max_link_rate;
 };
 
 struct dw_dp_state {
@@ -411,14 +403,6 @@ struct dw_dp_state {
 
 	int bpc;
 	int color_format;
-};
-
-struct hdcp_key_data_t {
-	unsigned int signature;
-	unsigned int length;
-	unsigned int crc;
-	unsigned int flags;
-	unsigned char data[];
 };
 
 enum {
@@ -513,8 +497,6 @@ static int dw_dp_hdcp_init_keys(struct dw_dp *dp)
 	u8 hdcp_vendor_data[HDCP_DATA_SIZE + 1];
 	void __iomem *base;
 	struct arm_smccc_res res;
-	struct hdcp_key_data_t *key_data;
-	bool aes_encrypt;
 
 	regmap_read(dp->regmap, DPTX_HDCPREG_RMLSTS, &val);
 	if (FIELD_GET(IDPK_DATA_INDEX, val) == 40) {
@@ -523,16 +505,10 @@ static int dw_dp_hdcp_init_keys(struct dw_dp *dp)
 	}
 
 	size = rk_vendor_read(DP_HDCP1X_ID, hdcp_vendor_data, HDCP_DATA_SIZE);
-	if (size < (HDCP_KEY_SIZE + HDCP_KEY_SEED_SIZE))  {
-		dev_info(dp->dev, "HDCP key read error, size: %d\n", size);
+	if (size < HDCP_DATA_SIZE)  {
+		dev_info(dp->dev, "HDCP: read size %d\n", size);
 		return -EINVAL;
 	}
-
-	key_data = (struct hdcp_key_data_t *)hdcp_vendor_data;
-	if ((key_data->signature != HDCP_SIG_MAGIC) || !(key_data->flags & HDCP_FLG_AES))
-		aes_encrypt = false;
-	else
-		aes_encrypt = true;
 
 	base = sip_hdcp_request_share_memory(dp->id ? DP_TX1 : DP_TX0);
 	if (!base)
@@ -540,7 +516,7 @@ static int dw_dp_hdcp_init_keys(struct dw_dp *dp)
 
 	memcpy_toio(base, hdcp_vendor_data, size);
 
-	res = sip_hdcp_config(HDCP_FUNC_KEY_LOAD, dp->id ? DP_TX1 : DP_TX0, !aes_encrypt);
+	res = sip_hdcp_config(HDCP_FUNC_KEY_LOAD, dp->id ? DP_TX1 : DP_TX0, 0);
 	if (IS_SIP_ERROR(res.a0)) {
 		dev_err(dp->dev, "load hdcp key failed\n");
 		return -EBUSY;
@@ -1493,7 +1469,7 @@ static int dw_dp_link_probe(struct dw_dp *dp)
 			!!(dpcd & DP_VSC_SDP_EXT_FOR_COLORIMETRY_SUPPORTED);
 
 	link->revision = link->dpcd[DP_DPCD_REV];
-	link->rate = min_t(u32, min(dp->max_link_rate, dp->phy->attrs.max_link_rate * 100),
+	link->rate = min_t(u32, dp->phy->attrs.max_link_rate * 100,
 			   drm_dp_max_link_rate(link->dpcd));
 	link->lanes = min_t(u8, phy_get_bus_width(dp->phy),
 			    drm_dp_max_lane_count(link->dpcd));
@@ -2216,29 +2192,13 @@ static int dw_dp_video_set_pixel_mode(struct dw_dp *dp, u8 pixel_mode)
 	return 0;
 }
 
-static bool dw_dp_video_need_vsc_sdp(struct dw_dp *dp)
-{
-	struct dw_dp_link *link = &dp->link;
-	struct dw_dp_video *video = &dp->video;
-
-	if (!link->vsc_sdp_extension_for_colorimetry_supported)
-		return false;
-
-	if (video->color_format == DRM_COLOR_FORMAT_YCRCB420)
-		return true;
-
-	if (dw_dp_is_hdr_eotf(dp->eotf_type))
-		return true;
-
-	return false;
-}
-
 static int dw_dp_video_set_msa(struct dw_dp *dp, u8 color_format, u8 bpc,
 			       u16 vstart, u16 hstart)
 {
+	struct dw_dp_link *link = &dp->link;
 	u16 misc = 0;
 
-	if (dw_dp_video_need_vsc_sdp(dp))
+	if (link->vsc_sdp_extension_for_colorimetry_supported)
 		misc |= DP_MSA_MISC_COLOR_VSC_SDP;
 
 	switch (color_format) {
@@ -2455,7 +2415,7 @@ static int dw_dp_video_enable(struct dw_dp *dp)
 	regmap_update_bits(dp->regmap, DPTX_VSAMPLE_CTRL, VIDEO_STREAM_ENABLE,
 			   FIELD_PREP(VIDEO_STREAM_ENABLE, 1));
 
-	if (dw_dp_video_need_vsc_sdp(dp))
+	if (link->vsc_sdp_extension_for_colorimetry_supported)
 		dw_dp_send_vsc_sdp(dp);
 
 	if (dw_dp_is_hdr_eotf(dp->eotf_type))
@@ -2692,7 +2652,7 @@ static ssize_t dw_dp_aux_transfer(struct drm_dp_aux *aux,
 				  struct drm_dp_aux_msg *msg)
 {
 	struct dw_dp *dp = container_of(aux, struct dw_dp, aux);
-	unsigned long timeout = msecs_to_jiffies(10);
+	unsigned long timeout = msecs_to_jiffies(250);
 	u32 status, value;
 	ssize_t ret = 0;
 
@@ -2724,7 +2684,7 @@ static ssize_t dw_dp_aux_transfer(struct drm_dp_aux *aux,
 
 	status = wait_for_completion_timeout(&dp->complete, timeout);
 	if (!status) {
-		dev_dbg(dp->dev, "timeout waiting for AUX reply\n");
+		dev_err(dp->dev, "timeout waiting for AUX reply\n");
 		return -ETIMEDOUT;
 	}
 
@@ -3128,9 +3088,6 @@ static void dw_dp_bridge_atomic_enable(struct drm_bridge *bridge,
 
 	if (dp->panel)
 		drm_panel_enable(dp->panel);
-
-	extcon_set_state_sync(dp->extcon, EXTCON_DISP_DP, true);
-	dw_dp_audio_handle_plugged_change(&dp->audio, true);
 }
 
 static void dw_dp_reset(struct dw_dp *dp)
@@ -3166,40 +3123,26 @@ static void dw_dp_bridge_atomic_disable(struct drm_bridge *bridge,
 	dw_dp_link_disable(dp);
 	bitmap_zero(dp->sdp_reg_bank, SDP_REG_BANK_SIZE);
 	dw_dp_reset(dp);
-
-	extcon_set_state_sync(dp->extcon, EXTCON_DISP_DP, false);
-	dw_dp_audio_handle_plugged_change(&dp->audio, false);
 }
 
 static bool dw_dp_detect_dpcd(struct dw_dp *dp)
 {
-	u8 value;
 	int ret;
 
 	ret = phy_power_on(dp->phy);
 	if (ret)
-		goto fail_power_on;
-
-	ret = drm_dp_dpcd_readb(&dp->aux, DP_DPCD_REV, &value);
-	if (ret < 0) {
-		dev_err(dp->dev, "aux failed to read dpcd: %d\n", ret);
-		goto fail_probe;
-	}
+		return false;
 
 	ret = dw_dp_link_probe(dp);
 	if (ret) {
+		phy_power_off(dp->phy);
 		dev_err(dp->dev, "failed to probe DP link: %d\n", ret);
-		goto fail_probe;
+		return false;
 	}
 
 	phy_power_off(dp->phy);
 
 	return true;
-
-fail_probe:
-	phy_power_off(dp->phy);
-fail_power_on:
-	return false;
 }
 
 static enum drm_connector_status dw_dp_bridge_detect(struct drm_bridge *bridge)
@@ -3228,6 +3171,14 @@ static enum drm_connector_status dw_dp_bridge_detect(struct drm_bridge *bridge)
 	}
 
 out:
+	if (status == connector_status_connected) {
+		extcon_set_state_sync(dp->extcon, EXTCON_DISP_DP, true);
+		dw_dp_audio_handle_plugged_change(&dp->audio, true);
+	} else {
+		extcon_set_state_sync(dp->extcon, EXTCON_DISP_DP, false);
+		dw_dp_audio_handle_plugged_change(&dp->audio, false);
+	}
+
 	return status;
 }
 
@@ -3982,53 +3933,6 @@ static const struct regmap_config dw_dp_regmap_config = {
 	.rd_table = &dw_dp_readable_table,
 };
 
-static u32 dw_dp_parse_link_frequencies(struct dw_dp *dp)
-{
-	struct device_node *node = dp->dev->of_node;
-	struct device_node *endpoint;
-	u64 frequency = 0;
-	int cnt;
-
-	endpoint = of_graph_get_endpoint_by_regs(node, 1, 0);
-	if (!endpoint)
-		return 0;
-
-	cnt = of_property_count_u64_elems(endpoint, "link-frequencies");
-	if (cnt > 0)
-		of_property_read_u64_index(endpoint, "link-frequencies",
-					   cnt - 1, &frequency);
-	of_node_put(endpoint);
-
-	if (!frequency)
-		return 0;
-
-	do_div(frequency, 10 * 1000);	/* symbol rate kbytes */
-
-	switch (frequency) {
-	case 162000:
-	case 270000:
-	case 540000:
-	case 810000:
-		break;
-	default:
-		dev_err(dp->dev, "invalid link frequency value: %llu\n", frequency);
-		return 0;
-	}
-
-	return frequency;
-}
-
-static int dw_dp_parse_dt(struct dw_dp *dp)
-{
-	dp->force_hpd = device_property_read_bool(dp->dev, "force-hpd");
-
-	dp->max_link_rate = dw_dp_parse_link_frequencies(dp);
-	if (!dp->max_link_rate)
-		dp->max_link_rate = 810000;
-
-	return 0;
-}
-
 static int dw_dp_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -4047,10 +3951,6 @@ static int dw_dp_probe(struct platform_device *pdev)
 	dp->id = id;
 	dp->dev = dev;
 	dp->video.pixel_mode = DPTX_MP_QUAD_PIXEL;
-
-	ret = dw_dp_parse_dt(dp);
-	if (ret)
-		return dev_err_probe(dev, ret, "failed to parse DT\n");
 
 	mutex_init(&dp->irq_lock);
 	INIT_WORK(&dp->hpd_work, dw_dp_hpd_work);
@@ -4175,6 +4075,8 @@ static int dw_dp_probe(struct platform_device *pdev)
 	dp->bridge.type = DRM_MODE_CONNECTOR_DisplayPort;
 
 	platform_set_drvdata(pdev, dp);
+
+	dp->force_hpd = device_property_read_bool(dev, "force-hpd");
 
 	if (device_property_read_bool(dev, "split-mode")) {
 		struct dw_dp *secondary = dw_dp_find_by_id(dev->driver, !dp->id);

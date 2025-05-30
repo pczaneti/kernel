@@ -99,7 +99,7 @@ mpp_dma_remove_extra_buffer(struct mpp_dma_session *dma)
 				oldest = buffer;
 			}
 		}
-		if (oldest && kref_read(&oldest->ref) == 1)
+		if (oldest && kref_read(&oldest->ref) <= 1)
 			kref_put(&oldest->ref, mpp_dma_release_buffer);
 		mutex_unlock(&dma->list_mutex);
 	}
@@ -191,8 +191,7 @@ struct mpp_dma_buffer *mpp_dma_import_fd(struct mpp_iommu_info *iommu_info,
 	}
 
 	/* remove the oldest before add buffer */
-	if (!IS_ENABLED(CONFIG_DMABUF_CACHE))
-		mpp_dma_remove_extra_buffer(dma);
+	mpp_dma_remove_extra_buffer(dma);
 
 	/* Check whether in dma session */
 	buffer = mpp_dma_find_buffer_fd(dma, fd);
@@ -455,19 +454,10 @@ static int mpp_iommu_handle(struct iommu_domain *iommu,
 		return 0;
 	}
 
-	if (mpp->cur_task)
-		mpp_task_dump_mem_region(mpp, mpp->cur_task);
-
 	if (mpp->dev_ops && mpp->dev_ops->dump_dev)
 		mpp->dev_ops->dump_dev(mpp);
 	else
 		mpp_task_dump_hw_reg(mpp);
-
-	/*
-	 * Mask iommu irq, in order for iommu not repeatedly trigger pagefault.
-	 * Until the pagefault task finish by hw timeout.
-	 */
-	rockchip_iommu_mask_irq(mpp->dev);
 
 	return 0;
 }

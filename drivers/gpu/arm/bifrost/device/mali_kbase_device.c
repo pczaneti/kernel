@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2010-2023 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2010-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -35,7 +35,6 @@
 #include <mali_kbase.h>
 #include <mali_kbase_defs.h>
 #include <mali_kbase_hwaccess_instr.h>
-#include <mali_kbase_hwaccess_time.h>
 #include <mali_kbase_hw.h>
 #include <mali_kbase_config_defaults.h>
 #include <linux/priority_control_manager.h>
@@ -194,22 +193,16 @@ static int mali_oom_notifier_handler(struct notifier_block *nb,
 	list_for_each_entry(kctx, &kbdev->kctx_list, kctx_list_link) {
 		struct pid *pid_struct;
 		struct task_struct *task;
-		struct pid *tgid_struct;
-		struct task_struct *tgid_task;
-
 		unsigned long task_alloc_total =
 			KBASE_PAGES_TO_KIB(atomic_read(&(kctx->used_pages)));
 
 		rcu_read_lock();
 		pid_struct = find_get_pid(kctx->pid);
 		task = pid_task(pid_struct, PIDTYPE_PID);
-		tgid_struct = find_get_pid(kctx->tgid);
-		tgid_task = pid_task(tgid_struct, PIDTYPE_PID);
 
 		dev_err(kbdev->dev,
-			"OOM notifier: tsk %s:%s  tgid (%u)  pid (%u) %lu kB\n",
-			tgid_task ? tgid_task->comm : "[null task]",
-			task ? task->comm : "[null comm]", kctx->tgid,
+			"OOM notifier: tsk %s  tgid (%u)  pid (%u) %lu kB\n",
+			task ? task->comm : "[null task]", kctx->tgid,
 			kctx->pid, task_alloc_total);
 
 		put_pid(pid_struct);
@@ -315,8 +308,7 @@ int kbase_device_misc_init(struct kbase_device * const kbdev)
 #endif /* MALI_USE_CSF */
 
 	kbdev->mmu_mode = kbase_mmu_mode_get_aarch64();
-	kbdev->mmu_as_inactive_wait_time_ms =
-		kbase_get_timeout_ms(kbdev, MMU_AS_INACTIVE_WAIT_TIMEOUT);
+
 	mutex_init(&kbdev->kctx_list_lock);
 	INIT_LIST_HEAD(&kbdev->kctx_list);
 
@@ -468,6 +460,7 @@ void kbase_device_kinstr_prfcnt_term(struct kbase_device *kbdev)
 	kbase_kinstr_prfcnt_term(kbdev->kinstr_prfcnt_ctx);
 }
 
+#if defined(CONFIG_DEBUG_FS) && !IS_ENABLED(CONFIG_MALI_BIFROST_NO_MALI)
 int kbase_device_io_history_init(struct kbase_device *kbdev)
 {
 	return kbase_io_history_init(&kbdev->io_history,
@@ -478,6 +471,7 @@ void kbase_device_io_history_term(struct kbase_device *kbdev)
 {
 	kbase_io_history_term(&kbdev->io_history);
 }
+#endif
 
 int kbase_device_misc_register(struct kbase_device *kbdev)
 {

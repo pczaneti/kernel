@@ -217,7 +217,7 @@ static inline int rknpu_job_wait(struct rknpu_job *job)
 
 	last_task = job->last_task;
 	if (!last_task) {
-		spin_lock_irqsave(&rknpu_dev->irq_lock, flags);
+		spin_lock_irqsave(&rknpu_dev->lock, flags);
 		for (i = 0; i < job->use_core_num; i++) {
 			subcore_data = &rknpu_dev->subcore_datas[i];
 			list_for_each_entry_safe(
@@ -289,7 +289,6 @@ static inline int rknpu_job_subcore_commit_pc(struct rknpu_job *job,
 	int i = 0;
 	int submit_index = atomic_read(&job->submit_count[core_index]);
 	int max_submit_number = rknpu_dev->config->max_submit_number;
-	unsigned long flags;
 
 	if (!task_obj) {
 		job->ret = -EINVAL;
@@ -335,13 +334,9 @@ static inline int rknpu_job_subcore_commit_pc(struct rknpu_job *job,
 	first_task = &task_base[task_start];
 	last_task = &task_base[task_end];
 
-	if (rknpu_dev->config->pc_dma_ctrl) {
-		spin_lock_irqsave(&rknpu_dev->irq_lock, flags);
-		REG_WRITE(first_task->regcmd_addr, RKNPU_OFFSET_PC_DATA_ADDR);
-		spin_unlock_irqrestore(&rknpu_dev->irq_lock, flags);
-	} else {
-		REG_WRITE(first_task->regcmd_addr, RKNPU_OFFSET_PC_DATA_ADDR);
-	}
+	spin_lock(&rknpu_dev->lock);
+	REG_WRITE(first_task->regcmd_addr, RKNPU_OFFSET_PC_DATA_ADDR);
+	spin_unlock(&rknpu_dev->lock);
 
 	REG_WRITE((first_task->regcfg_amount + RKNPU_PC_DATA_EXTRA_AMOUNT +
 		   pc_data_amount_scale - 1) /
@@ -373,16 +368,11 @@ static inline int rknpu_job_subcore_commit(struct rknpu_job *job, int core_index
 	struct rknpu_device *rknpu_dev = job->rknpu_dev;
 	struct rknpu_submit *args = job->args;
 	void __iomem *rknpu_core_base = rknpu_dev->base[core_index];
-	unsigned long flags;
 
 	// switch to slave mode
-	if (rknpu_dev->config->pc_dma_ctrl) {
-		spin_lock_irqsave(&rknpu_dev->irq_lock, flags);
-		REG_WRITE(0x1, RKNPU_OFFSET_PC_DATA_ADDR);
-		spin_unlock_irqrestore(&rknpu_dev->irq_lock, flags);
-	} else {
-		REG_WRITE(0x1, RKNPU_OFFSET_PC_DATA_ADDR);
-	}
+	spin_lock(&rknpu_dev->lock);
+	REG_WRITE(0x1, RKNPU_OFFSET_PC_DATA_ADDR);
+	spin_unlock(&rknpu_dev->lock);
 
 	if (!(args->flags & RKNPU_JOB_PC)) {
 		job->ret = -EINVAL;
@@ -461,7 +451,7 @@ static void rknpu_job_done(struct rknpu_job *job, int ret, int core_index)
 	if (atomic_inc_return(&job->submit_count[core_index]) <
 	    (rknpu_get_task_number(job, core_index) + max_submit_number - 1) /
 		    max_submit_number) {
-		rknpu_job_subcore_commit(job, core_index);
+		rknpu_job_commit(job);
 		return;
 	}
 
@@ -946,30 +936,27 @@ int rknpu_set_bw_priority(struct rknpu_device *rknpu_dev, uint32_t priority,
 int rknpu_clear_rw_amount(struct rknpu_device *rknpu_dev)
 {
 	void __iomem *rknpu_core_base = rknpu_dev->base[0];
-	unsigned long flags;
 
 	if (!rknpu_dev->config->bw_enable) {
 		LOG_WARN("Clear rw_amount is not supported on this device!\n");
 		return 0;
 	}
 
-	if (rknpu_dev->config->pc_dma_ctrl) {
-		uint32_t pc_data_addr = 0;
+	spin_lock(&rknpu_dev->lock);
 
-		spin_lock_irqsave(&rknpu_dev->irq_lock, flags);
-		pc_data_addr = REG_READ(RKNPU_OFFSET_PC_DATA_ADDR);
+	if (rknpu_dev->config->pc_dma_ctrl) {
+		uint32_t pc_data_addr = REG_READ(RKNPU_OFFSET_PC_DATA_ADDR);
 
 		REG_WRITE(0x1, RKNPU_OFFSET_PC_DATA_ADDR);
 		REG_WRITE(0x80000101, RKNPU_OFFSET_CLR_ALL_RW_AMOUNT);
 		REG_WRITE(0x00000101, RKNPU_OFFSET_CLR_ALL_RW_AMOUNT);
 		REG_WRITE(pc_data_addr, RKNPU_OFFSET_PC_DATA_ADDR);
-		spin_unlock_irqrestore(&rknpu_dev->irq_lock, flags);
 	} else {
-		spin_lock(&rknpu_dev->lock);
 		REG_WRITE(0x80000101, RKNPU_OFFSET_CLR_ALL_RW_AMOUNT);
 		REG_WRITE(0x00000101, RKNPU_OFFSET_CLR_ALL_RW_AMOUNT);
-		spin_unlock(&rknpu_dev->lock);
 	}
+
+	spin_unlock(&rknpu_dev->lock);
 
 	return 0;
 }

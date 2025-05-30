@@ -1178,6 +1178,12 @@ isp_rawaebig_config(struct rkisp_isp_params_vdev *params_vdev,
 		   ISP2X_REG_WR_MASK);
 
 	wnd_num_idx = arg->wnd_num;
+	if (wnd_num_idx >= ARRAY_SIZE(ae_wnd_num)) {
+		wnd_num_idx = ARRAY_SIZE(ae_wnd_num) - 1;
+		dev_err(params_vdev->dev->dev,
+			"%s invalid wnd_num:%d, set to %d\n",
+			__func__, arg->wnd_num, wnd_num_idx);
+	}
 	value |= ISP2X_RAWAEBIG_WNDNUM_SET(wnd_num_idx);
 
 	if (arg->subwin_en[0])
@@ -2291,6 +2297,12 @@ isp_rawhstbig_cfg_sram(struct rkisp_isp_params_vdev *params_vdev,
 		return;
 
 	wnd_num_idx = arg->wnd_num;
+	if (wnd_num_idx >= ARRAY_SIZE(hist_wnd_num)) {
+		wnd_num_idx = ARRAY_SIZE(hist_wnd_num) - 1;
+		dev_err(params_vdev->dev->dev,
+			"%s invalid wnd_num:%d, set to %d\n",
+			__func__, arg->wnd_num, wnd_num_idx);
+	}
 	memset(weight15x15, 0, sizeof(weight15x15));
 	for (i = 0; i < hist_wnd_num[wnd_num_idx]; i++) {
 		for (j = 0; j < hist_wnd_num[wnd_num_idx]; j++) {
@@ -2338,6 +2350,12 @@ isp_rawhstbig_config(struct rkisp_isp_params_vdev *params_vdev,
 	}
 
 	wnd_num_idx = arg->wnd_num;
+	if (wnd_num_idx >= ARRAY_SIZE(hist_wnd_num)) {
+		wnd_num_idx = ARRAY_SIZE(hist_wnd_num) - 1;
+		dev_err(params_vdev->dev->dev,
+			"%s invalid wnd_num:%d, set to %d\n",
+			__func__, arg->wnd_num, wnd_num_idx);
+	}
 	/* avoid to override the old enable value */
 	hist_ctrl = rkisp_ioread32(params_vdev, addr + ISP_RAWHIST_BIG_CTRL);
 	hist_ctrl &= ISP2X_RAWHSTBIG_CTRL_EN_MASK;
@@ -3955,6 +3973,19 @@ end:
 	return ispdev->is_bigmode = is_bigmode;
 }
 
+static void
+rkisp_params_get_bay3d_buffd_v21(struct rkisp_isp_params_vdev *params_vdev,
+				 struct rkisp_bay3dbuf_info *bay3dbuf)
+{
+	struct rkisp_isp_params_val_v21 *priv_val = params_vdev->priv_val;
+	struct rkisp_dummy_buffer *buf = &priv_val->buf_3dnr;
+
+	if (rkisp_buf_get_fd(params_vdev->dev, buf, true) < 0)
+		return;
+	bay3dbuf->iir_fd = buf->dma_fd;
+	bay3dbuf->iir_size = buf->size;
+}
+
 /* Not called when the camera active, thus not isr protection. */
 static void
 rkisp_params_first_cfg_v2x(struct rkisp_isp_params_vdev *params_vdev)
@@ -4074,6 +4105,7 @@ rkisp_get_param_size_v2x(struct rkisp_isp_params_vdev *params_vdev,
 			 unsigned int sizes[])
 {
 	sizes[0] = sizeof(struct isp2x_isp_params_cfg);
+	params_vdev->vdev_fmt.fmt.meta.buffersize = sizes[0];
 }
 
 static void
@@ -4312,19 +4344,23 @@ static struct rkisp_isp_params_ops rkisp_isp_params_ops_tbl = {
 	.stream_stop = rkisp_params_stream_stop_v2x,
 	.fop_release = rkisp_params_fop_release_v2x,
 	.check_bigmode = rkisp_params_check_bigmode_v21,
+	.get_bay3d_buffd = rkisp_params_get_bay3d_buffd_v21,
 };
 
 int rkisp_init_params_vdev_v21(struct rkisp_isp_params_vdev *params_vdev)
 {
 	struct device *dev = params_vdev->dev->dev;
 	struct rkisp_isp_params_val_v21 *priv_val;
-	int i, ret;
+	int i, ret, size;
 
 	priv_val = kzalloc(sizeof(*priv_val), GFP_KERNEL);
 	if (!priv_val)
 		return -ENOMEM;
 
-	params_vdev->isp21_params = vmalloc(sizeof(*params_vdev->isp21_params));
+	size = sizeof(struct isp21_isp_params_cfg);
+	if (params_vdev->dev->hw_dev->unite)
+		size *= ISP_UNITE_MAX;
+	params_vdev->isp21_params = vmalloc(size);
 	if (!params_vdev->isp21_params) {
 		kfree(priv_val);
 		return -ENOMEM;

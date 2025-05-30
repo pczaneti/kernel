@@ -160,11 +160,6 @@ struct panel_simple {
 	enum drm_panel_orientation orientation;
 };
 
-static inline void panel_simple_msleep(unsigned int msecs)
-{
-	usleep_range(msecs * 1000, msecs * 1000 + 100);
-}
-
 static inline struct panel_simple *to_panel_simple(struct drm_panel *panel)
 {
 	return container_of(panel, struct panel_simple, base);
@@ -282,7 +277,7 @@ static int panel_simple_xfer_dsi_cmd_seq(struct panel_simple *panel,
 			dev_err(dev, "failed to write dcs cmd: %d\n", err);
 
 		if (cmd->header.delay)
-			panel_simple_msleep(cmd->header.delay);
+			msleep(cmd->header.delay);
 	}
 
 	return 0;
@@ -305,7 +300,7 @@ static int panel_simple_xfer_spi_cmd_seq(struct panel_simple *panel, struct pane
 			return ret;
 
 		if (cmd->header.delay)
-			panel_simple_msleep(cmd->header.delay);
+			usleep_range(cmd->header.delay * 1000, (cmd->header.delay + 1) * 1000);
 	}
 
 	return 0;
@@ -483,7 +478,7 @@ static int panel_simple_disable(struct drm_panel *panel)
 		return 0;
 
 	if (p->desc->delay.disable)
-		panel_simple_msleep(p->desc->delay.disable);
+		msleep(p->desc->delay.disable);
 
 	p->enabled = false;
 
@@ -515,7 +510,7 @@ static int panel_simple_unprepare(struct drm_panel *panel)
 	panel_simple_regulator_disable(p);
 
 	if (p->desc->delay.unprepare)
-		panel_simple_msleep(p->desc->delay.unprepare);
+		msleep(p->desc->delay.unprepare);
 
 	p->prepared = false;
 
@@ -569,7 +564,7 @@ static int panel_simple_prepare(struct drm_panel *panel)
 	if (p->no_hpd)
 		delay += p->desc->delay.hpd_absent_delay;
 	if (delay)
-		panel_simple_msleep(delay);
+		msleep(delay);
 
 	if (p->hpd_gpio) {
 		if (IS_ERR(p->hpd_gpio)) {
@@ -594,12 +589,12 @@ static int panel_simple_prepare(struct drm_panel *panel)
 	gpiod_direction_output(p->reset_gpio, 1);
 
 	if (p->desc->delay.reset)
-		panel_simple_msleep(p->desc->delay.reset);
+		msleep(p->desc->delay.reset);
 
 	gpiod_direction_output(p->reset_gpio, 0);
 
 	if (p->desc->delay.init)
-		panel_simple_msleep(p->desc->delay.init);
+		msleep(p->desc->delay.init);
 
 	if (p->desc->init_seq) {
 		if (p->desc->cmd_type == CMD_TYPE_SPI) {
@@ -626,7 +621,7 @@ static int panel_simple_enable(struct drm_panel *panel)
 		return 0;
 
 	if (p->desc->delay.enable)
-		panel_simple_msleep(p->desc->delay.enable);
+		msleep(p->desc->delay.enable);
 
 	p->enabled = true;
 

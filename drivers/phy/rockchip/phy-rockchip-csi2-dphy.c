@@ -244,7 +244,6 @@ static int rockchip_csi2_dphy_attach_hw(struct csi2_dphy *dphy, int csi_idx, int
 			return -EINVAL;
 		}
 		dphy_hw->dphy_dev[dphy_hw->dphy_dev_num] = dphy;
-		dphy_hw->dphy_dev_num++;
 		dphy->phy_hw[index] = (void *)dphy_hw;
 		dphy->csi_info.dphy_vendor[index] = PHY_VENDOR_INNO;
 		mutex_unlock(&dphy_hw->mutex);
@@ -651,12 +650,32 @@ static long rkcif_csi2_dphy_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void
 {
 	struct csi2_dphy *dphy = to_csi2_dphy(sd);
 	long ret = 0;
+	int i = 0;
+	int on = 0;
 
 	switch (cmd) {
 	case RKCIF_CMD_SET_CSI_IDX:
 		if (dphy->drv_data->chip_id != CHIP_ID_RK3568 &&
 		    dphy->drv_data->chip_id != CHIP_ID_RV1106)
 			dphy->csi_info = *((struct rkcif_csi_info *)arg);
+		break;
+	case RKMODULE_SET_QUICK_STREAM:
+		for (i = 0; i < dphy->csi_info.csi_num; i++) {
+			if (dphy->csi_info.dphy_vendor[i] == PHY_VENDOR_INNO) {
+				dphy->dphy_hw = (struct csi2_dphy_hw *)dphy->phy_hw[i];
+				if (!dphy->dphy_hw ||
+				    !dphy->dphy_hw->quick_stream_off ||
+				    !dphy->dphy_hw->quick_stream_on) {
+					ret = -EINVAL;
+					break;
+				}
+				on = *(int *)arg;
+				if (on)
+					dphy->dphy_hw->quick_stream_on(dphy, sd);
+				else
+					dphy->dphy_hw->quick_stream_off(dphy, sd);
+			}
+		}
 		break;
 	default:
 		ret = -ENOIOCTLCMD;
@@ -801,9 +820,8 @@ static int rockchip_csi2_dphy_fwnode_parse(struct device *dev,
 		return -EINVAL;
 	}
 
-	if (vep->bus_type == V4L2_MBUS_CSI2_DPHY ||
-	    vep->bus_type == V4L2_MBUS_CSI2_CPHY) {
-		config->type = vep->bus_type;
+	if (vep->bus_type == V4L2_MBUS_CSI2_DPHY) {
+		config->type = V4L2_MBUS_CSI2_DPHY;
 		config->flags = vep->bus.mipi_csi2.flags;
 		s_asd->lanes = vep->bus.mipi_csi2.num_data_lanes;
 	} else if (vep->bus_type == V4L2_MBUS_CCP2) {

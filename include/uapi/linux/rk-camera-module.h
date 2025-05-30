@@ -38,6 +38,8 @@
 #define RKMODULE_EXTERNAL_MASTER_MODE	"external_master"
 #define RKMODULE_SLAVE_MODE		"slave"
 
+#define RKMODULE_CAMERA_STANDBY_HW	"rockchip,camera-module-stb"
+
 /* BT.656 & BT.1120 multi channel
  * On which channels it can send video data
  * related with struct rkmodule_bt656_mbus_info
@@ -183,14 +185,23 @@
 #define RKMODULE_SET_CAPTURE_MODE  \
 	_IOW('V', BASE_VIDIOC_PRIVATE + 40, struct rkmodule_capture_info)
 
+#define RKMODULE_GET_SKIP_FRAME  \
+	_IOR('V', BASE_VIDIOC_PRIVATE + 41, __u32)
+
+#define RKMODULE_GET_DSI_MODE       \
+	_IOR('V', BASE_VIDIOC_PRIVATE + 42, __u32)
+
+#define RKCIS_CMD_FLASH_LIGHT_CTRL  \
+	_IOW('V', BASE_VIDIOC_PRIVATE + 43, struct rk_light_param)
+
 struct rkmodule_i2cdev_info {
-	__u8 slave_addr;
+	u8 slave_addr;
 } __attribute__ ((packed));
 
 struct rkmodule_dev_info {
 	union {
 		struct rkmodule_i2cdev_info i2c_dev;
-		__u32 reserved[8];
+		u32 reserved[8];
 	};
 } __attribute__ ((packed));
 
@@ -702,10 +713,10 @@ enum rkmodule_sync_mode {
 };
 
 struct rkmodule_mclk_data {
-	__u32 enable;
-	__u32 mclk_index;
-	__u32 mclk_rate;
-	__u32 reserved[8];
+	u32 enable;
+	u32 mclk_index;
+	u32 mclk_rate;
+	u32 reserved[8];
 };
 
 /*
@@ -755,14 +766,14 @@ enum csi2_dphy_vendor {
 };
 
 struct rkmodule_csi_dphy_param {
-	__u32 vendor;
-	__u32 lp_vol_ref;
-	__u32 lp_hys_sw[DPHY_MAX_LANE];
-	__u32 lp_escclk_pol_sel[DPHY_MAX_LANE];
-	__u32 skew_data_cal_clk[DPHY_MAX_LANE];
-	__u32 clk_hs_term_sel;
-	__u32 data_hs_term_sel[DPHY_MAX_LANE];
-	__u32 reserved[32];
+	u32 vendor;
+	u32 lp_vol_ref;
+	u32 lp_hys_sw[DPHY_MAX_LANE];
+	u32 lp_escclk_pol_sel[DPHY_MAX_LANE];
+	u32 skew_data_cal_clk[DPHY_MAX_LANE];
+	u32 clk_hs_term_sel;
+	u32 data_hs_term_sel[DPHY_MAX_LANE];
+	u32 reserved[32];
 };
 
 struct rkmodule_sensor_fmt {
@@ -809,5 +820,18 @@ struct rkmodule_capture_info {
 		struct rkmodule_multi_combine_info multi_combine_info;
 	};
 };
+
+enum rk_light_type {
+	LIGHT_PWM,
+	LIGHT_GPIO,
+};
+
+struct rk_light_param {
+	__u8 light_type;
+	__u8 light_enable;
+	__u64 duty_cycle;
+	__u64 period;
+	__u32 polarity;
+} __attribute__ ((packed));
 
 #endif /* _UAPI_RKMODULE_CAMERA_H */
